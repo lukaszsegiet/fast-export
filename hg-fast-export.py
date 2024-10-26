@@ -194,13 +194,14 @@ def export_file_contents(ctx,manifest,files,hgtags,encoding='',plugins={}):
       filename=file_data['filename']
       file_ctx=file_data['file_ctx']
 
-    wr(b'M %s inline %s' % (gitmode(manifest.flags(file)),
-                           strip_leading_slash(filename)))
-    wr(b'data %d' % len(d)) # had some trouble with size()
-    wr(d)
-    count+=1
-    if count%cfg_export_boundary==0:
-      sys.stderr.buffer.write(b'Exported %d/%d files\n' % (count,max))
+    if d is not None:
+      wr(b'M %s inline %s' % (gitmode(manifest.flags(file)),
+                             strip_leading_slash(filename)))
+      wr(b'data %d' % len(d)) # had some trouble with size()
+      wr(d)
+      count+=1
+      if count%cfg_export_boundary==0:
+        sys.stderr.buffer.write(b'Exported %d/%d files\n' % (count,max))
   if max>cfg_export_boundary:
     sys.stderr.buffer.write(b'Exported %d/%d files\n' % (count,max))
 
@@ -228,7 +229,7 @@ def sanitize_name(name,what="branch", mapping={}):
   if not auto_sanitize:
     return mapping.get(name,name)
   n=mapping.get(name,name)
-  p=re.compile(b'([\\[ ~^:?\\\\*]|\.\.)')
+  p=re.compile(b'([\\[ ~^:?\\\\*]|\\.\\.)')
   n=p.sub(b'_', n)
   if n[-1:] in (b'/', b'.'): n=n[:-1]+b'_'
   n=b'/'.join([dot(s) for s in n.split(b'/')])
@@ -280,7 +281,7 @@ def export_commit(ui,repo,revision,old_marks,max,count,authors,
     parents = commit_data['parents']
     author = commit_data['author']
     user = commit_data['committer']
-    desc = commit_data['desc'] + b'\n'
+    desc = commit_data['desc']
 
   if len(parents)==0 and revision != 0:
     wr(b'reset refs/heads/%s' % branch)
@@ -290,7 +291,7 @@ def export_commit(ui,repo,revision,old_marks,max,count,authors,
   if sob:
     wr(b'author %s %d %s' % (author,time,timezone))
   wr(b'committer %s %d %s' % (user,time,timezone))
-  wr_data(desc)
+  wr_data(desc + b'\n')
 
   man=ctx.manifest()
 
@@ -311,9 +312,18 @@ def export_commit(ui,repo,revision,old_marks,max,count,authors,
     % (branch, type.encode(), revision + 1, max, len(modified), len(removed))
   )
 
-  for filename in removed:
+  for file in removed:
     if fn_encoding:
-      filename=filename.decode(fn_encoding).encode('utf8')
+      filename=file.decode(fn_encoding).encode('utf8')
+    else:
+      filename=file
+
+    if plugins and plugins['file_data_filters']:
+      file_data = {'filename':filename, 'file_ctx':None, 'data':None}
+      for filter in plugins['file_data_filters']:
+        filter(file_data)
+      filename=file_data['filename']
+
     filename=strip_leading_slash(filename)
     if filename==b'.hgsub':
       remove_gitmodules(ctx)
